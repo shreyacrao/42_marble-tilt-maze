@@ -48,9 +48,15 @@ class GameEngine:
         return walls
 
     def handle_event(self, event):
-        # This game is driven entirely by the continuous mouse
-        # position, handled in handle_input each frame.
-        pass
+    if not self.game_over:
+        return
+
+    if event.type == pygame.KEYDOWN:
+        if event.key in (pygame.K_r, pygame.K_RETURN, pygame.K_SPACE):
+            self._restart_game()
+        elif event.key == pygame.K_ESCAPE:
+            pygame.quit()
+            raise SystemExit
 
     def handle_input(self):
         if self.game_over:
@@ -73,6 +79,7 @@ class GameEngine:
         if elapsed >= self.time_limit_ms:
             self.game_over = True
             self.result = "timeout"
+            self.finish_time_ms = None
             return
 
         self.marble.vx *= (1 - self.friction)
@@ -199,10 +206,59 @@ def _resolve_wall_collisions(self):
         timer_text = self.font.render(f"Time: {seconds_left}s", True, WHITE)
         screen.blit(timer_text, (10, 10))
 
-        if self.game_over and not getattr(self, "_game_over_logged", False):
-            # NOTE: no proper end screen yet - see Task 2 in the README.
+        if self.game_over:
+            # Dark translucent overlay
+            overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 180))
+            screen.blit(overlay, (0, 0))
+        
+            # Fonts
+            title_font = pygame.font.SysFont("Arial", 48, bold=True)
+            message_font = pygame.font.SysFont("Arial", 30)
+            instruction_font = pygame.font.SysFont("Arial", 24)
+        
             if self.result == "solved":
-                print(f"Solved! Finished in {self.finish_time_ms / 1000:.1f}s")
+                title_text = "Maze Solved!"
+                message_text = (
+                    f"Finished in {self.finish_time_ms / 1000:.1f} seconds"
+                )
             else:
-                print("Time's up! Maze not solved.")
-            self._game_over_logged = True
+                title_text = "Time's Up!"
+                message_text = "The maze was not solved."
+        
+            title_surface = title_font.render(title_text, True, WHITE)
+            message_surface = message_font.render(message_text, True, WHITE)
+            instruction_surface = instruction_font.render(
+                "Press R, Enter, or Space to play again",
+                True,
+                WHITE
+            )
+        
+            # Center everything on screen
+            title_rect = title_surface.get_rect(
+                center=(self.width // 2, self.height // 2 - 70)
+            )
+        
+            message_rect = message_surface.get_rect(
+                center=(self.width // 2, self.height // 2)
+            )
+        
+            instruction_rect = instruction_surface.get_rect(
+                center=(self.width // 2, self.height // 2 + 60)
+            )
+        
+            screen.blit(title_surface, title_rect)
+            screen.blit(message_surface, message_rect)
+            screen.blit(instruction_surface, instruction_rect)
+
+def _restart_game(self):
+    self.marble = Marble(50, 50)
+
+    self.start_ticks = pygame.time.get_ticks()
+
+    self.game_over = False
+    self.result = None
+    self.finish_time_ms = None
+
+    # Allow the end-screen message to appear again later
+    self._game_over_logged = False
