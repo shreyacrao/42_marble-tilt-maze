@@ -1,3 +1,6 @@
+import math
+import array
+
 import pygame
 from .marble import Marble
 from .wall import Wall
@@ -14,6 +17,9 @@ class GameEngine:
     def __init__(self, width, height):
         self.width = width
         self.height = height
+
+        pygame.mixer.init()
+        self._load_sounds()
 
         self.marble = Marble(50, 50)
 
@@ -52,6 +58,63 @@ class GameEngine:
         self.result = None  # "solved" or "timeout"
         self.finish_time_ms = None
         self.show_difficulty_screen = False
+
+        # Bounce sound cooldown (ms) so sliding along a wall doesn't spam
+        self.last_bounce_sound = 0
+        self.bounce_sound_cooldown = 80
+
+    def _load_sounds(self):
+        """
+        Create simple sound effects programmatically.
+        No external sound files are required.
+        """
+
+        # Match whatever the mixer was actually initialised with
+        # (pygame.init() usually starts it in stereo).
+        sample_rate, _, channels = pygame.mixer.get_init()
+
+        def make_tone(frequency, duration, volume=0.3):
+            samples = int(sample_rate * duration)
+            buffer = array.array("h")
+
+            for i in range(samples):
+                t = i / sample_rate
+
+                # Fade out toward the end to avoid clicks
+                fade = 1.0 - (i / samples)
+
+                value = (
+                    math.sin(2 * math.pi * frequency * t)
+                    * volume
+                    * fade
+                )
+
+                # One copy of the sample per channel (mono or stereo)
+                for _ in range(channels):
+                    buffer.append(int(value * 32767))
+
+            return pygame.mixer.Sound(buffer=buffer)
+
+        # Wall bounce: short, low "thump"
+        self.bounce_sound = make_tone(
+            180,
+            0.08,
+            0.35
+        )
+
+        # Goal: higher, longer tone
+        self.goal_sound = make_tone(
+            700,
+            0.30,
+            0.35
+        )
+
+        # Timeout: lower tone
+        self.timeout_sound = make_tone(
+            120,
+            0.45,
+            0.35
+        )
 
     def _build_maze(self):
         walls = []
@@ -149,6 +212,9 @@ class GameEngine:
             self.game_over = True
             self.result = "timeout"
             self.finish_time_ms = None
+
+            self.timeout_sound.play()
+
             return
 
         self.marble.vx *= (1 - self.friction)
@@ -171,6 +237,8 @@ class GameEngine:
             self.game_over = True
             self.result = "solved"
             self.finish_time_ms = elapsed
+
+            self.goal_sound.play()
 
     def _resolve_wall_collisions(self):
         for wall in self.walls:
@@ -232,6 +300,13 @@ class GameEngine:
             velocity_into_wall = self.marble.vx * nx + self.marble.vy * ny
 
             if velocity_into_wall < 0:
+                # Play the bounce sound (with cooldown)
+                now = pygame.time.get_ticks()
+
+                if now - self.last_bounce_sound >= self.bounce_sound_cooldown:
+                    self.bounce_sound.play()
+                    self.last_bounce_sound = now
+
                 bounce = 0.3
                 self.marble.vx -= (1 + bounce) * velocity_into_wall * nx
                 self.marble.vy -= (1 + bounce) * velocity_into_wall * ny
