@@ -62,6 +62,7 @@ class GameEngine:
         # Bounce sound cooldown (ms) so sliding along a wall doesn't spam
         self.last_bounce_sound = 0
         self.bounce_sound_cooldown = 80
+        self.bounce_min_impact = 2.0  # min speed into wall to count as a bounce
 
     def _load_sounds(self):
         """
@@ -73,7 +74,7 @@ class GameEngine:
         # (pygame.init() usually starts it in stereo).
         sample_rate, _, channels = pygame.mixer.get_init()
 
-        def make_tone(frequency, duration, volume=0.3):
+        def make_buffer(frequency, duration, volume=0.3):
             samples = int(sample_rate * duration)
             buffer = array.array("h")
 
@@ -93,7 +94,12 @@ class GameEngine:
                 for _ in range(channels):
                     buffer.append(int(value * 32767))
 
-            return pygame.mixer.Sound(buffer=buffer)
+            return buffer
+
+        def make_tone(frequency, duration, volume=0.3):
+            return pygame.mixer.Sound(
+                buffer=make_buffer(frequency, duration, volume)
+            )
 
         # Wall bounce: short, low "thump"
         self.bounce_sound = make_tone(
@@ -109,12 +115,12 @@ class GameEngine:
             0.35
         )
 
-        # Timeout: lower tone
-        self.timeout_sound = make_tone(
-            120,
-            0.45,
-            0.35
-        )
+        # Timeout: three descending notes ("wah wah wahhh").
+        # (A single 120 Hz tone is too low for most laptop speakers to play.)
+        timeout_buffer = make_buffer(440, 0.20, 0.5)
+        timeout_buffer.extend(make_buffer(370, 0.20, 0.5))
+        timeout_buffer.extend(make_buffer(294, 0.50, 0.5))
+        self.timeout_sound = pygame.mixer.Sound(buffer=timeout_buffer)
 
     def _build_maze(self):
         walls = []
@@ -300,10 +306,14 @@ class GameEngine:
             velocity_into_wall = self.marble.vx * nx + self.marble.vy * ny
 
             if velocity_into_wall < 0:
-                # Play the bounce sound (with cooldown)
+                # Play the bounce sound only for a real impact (with cooldown).
+                # Gentle contact from sliding/resting against a wall is silent.
                 now = pygame.time.get_ticks()
 
-                if now - self.last_bounce_sound >= self.bounce_sound_cooldown:
+                if (
+                    -velocity_into_wall >= self.bounce_min_impact
+                    and now - self.last_bounce_sound >= self.bounce_sound_cooldown
+                ):
                     self.bounce_sound.play()
                     self.last_bounce_sound = now
 
