@@ -16,6 +16,27 @@ class GameEngine:
         self.height = height
 
         self.marble = Marble(50, 50)
+
+        self.difficulty = None
+
+        self.difficulty_settings = {
+            "Easy": {
+                "tilt_strength": 0.4,
+                "friction": 0.04,
+                "time_limit_ms": 60000
+            },
+            "Medium": {
+                "tilt_strength": 0.6,
+                "friction": 0.02,
+                "time_limit_ms": 45000
+            },
+            "Hard": {
+                "tilt_strength": 0.9,
+                "friction": 0.01,
+                "time_limit_ms": 30000
+            }
+        }
+
         self.tilt_strength = 0.6
         self.friction = 0.02
         self.max_speed = 9
@@ -25,12 +46,12 @@ class GameEngine:
 
         self.time_limit_ms = 45000
         self.start_ticks = pygame.time.get_ticks()
-        self.elapsed_ms = 0
 
         self.font = pygame.font.SysFont("Arial", 26)
         self.game_over = False
         self.result = None  # "solved" or "timeout"
         self.finish_time_ms = None
+        self.show_difficulty_screen = False
 
     def _build_maze(self):
         walls = []
@@ -50,15 +71,61 @@ class GameEngine:
         return walls
 
     def handle_event(self, event):
-        if not self.game_over:
+        if event.type != pygame.KEYDOWN:
             return
 
-        if event.type == pygame.KEYDOWN:
-            if event.key in (pygame.K_r, pygame.K_RETURN, pygame.K_SPACE):
-                self._restart_game()
+        # Difficulty selection screen
+        if self.show_difficulty_screen:
+            if event.key == pygame.K_1:
+                self._start_new_game("Easy")
+
+            elif event.key == pygame.K_2:
+                self._start_new_game("Medium")
+
+            elif event.key == pygame.K_3:
+                self._start_new_game("Hard")
+
             elif event.key == pygame.K_ESCAPE:
                 pygame.quit()
                 raise SystemExit
+
+            return
+
+        # End screen
+        if self.game_over:
+            if event.key in (
+                pygame.K_r,
+                pygame.K_RETURN,
+                pygame.K_SPACE
+            ):
+                self.show_difficulty_screen = True
+
+            elif event.key == pygame.K_ESCAPE:
+                pygame.quit()
+                raise SystemExit
+
+    def _start_new_game(self, difficulty):
+        settings = self.difficulty_settings[difficulty]
+
+        self.difficulty = difficulty
+
+        self.tilt_strength = settings["tilt_strength"]
+        self.friction = settings["friction"]
+        self.time_limit_ms = settings["time_limit_ms"]
+
+        # Reset marble
+        self.marble = Marble(50, 50)
+
+        # Reset game state
+        self.game_over = False
+        self.result = None
+        self.finish_time_ms = None
+
+        # Hide difficulty screen
+        self.show_difficulty_screen = False
+
+        # Restart timer
+        self.start_ticks = pygame.time.get_ticks()
 
     def handle_input(self):
         if self.game_over:
@@ -74,13 +141,11 @@ class GameEngine:
         self.marble.vy += ay
 
     def update(self):
-        if self.game_over:
+        if self.game_over or self.show_difficulty_screen:
             return
 
         elapsed = pygame.time.get_ticks() - self.start_ticks
-        self.elapsed_ms = elapsed
         if elapsed >= self.time_limit_ms:
-            self.elapsed_ms = self.time_limit_ms
             self.game_over = True
             self.result = "timeout"
             self.finish_time_ms = None
@@ -174,60 +239,223 @@ class GameEngine:
     def render(self, screen):
         screen.fill(DARK)
 
+        # Draw maze
         for wall in self.walls:
             pygame.draw.rect(screen, WALL_COLOR, wall.rect())
 
-        pygame.draw.circle(screen, GOAL_COLOR, (self.goal_x, self.goal_y), self.goal_radius)
-        pygame.draw.circle(screen, WHITE, (int(self.marble.x), int(self.marble.y)), self.marble.radius)
+        # Draw goal
+        pygame.draw.circle(
+            screen,
+            GOAL_COLOR,
+            (self.goal_x, self.goal_y),
+            self.goal_radius
+        )
 
-        # timer freezes once the round ends
-        seconds_left = max(0, (self.time_limit_ms - self.elapsed_ms) // 1000)
-        timer_text = self.font.render(f"Time: {seconds_left}s", True, WHITE)
-        screen.blit(timer_text, (10, 10))
+        # Draw marble
+        pygame.draw.circle(
+            screen,
+            WHITE,
+            (int(self.marble.x), int(self.marble.y)),
+            self.marble.radius
+        )
 
-        if self.game_over:
-            # Dark translucent overlay
-            overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 180))
-            screen.blit(overlay, (0, 0))
-
-            # Fonts
-            title_font = pygame.font.SysFont("Arial", 48, bold=True)
-            message_font = pygame.font.SysFont("Arial", 30)
-            instruction_font = pygame.font.SysFont("Arial", 24)
-
-            if self.result == "solved":
-                title_text = "Maze Solved!"
-                message_text = f"Finished in {self.finish_time_ms / 1000:.1f} seconds"
-            else:
-                title_text = "Time's Up!"
-                message_text = "The maze was not solved."
-
-            title_surface = title_font.render(title_text, True, WHITE)
-            message_surface = message_font.render(message_text, True, WHITE)
-            instruction_surface = instruction_font.render(
-                "Press R, Enter, or Space to play again", True, WHITE
+        # Draw timer only while playing
+        if not self.game_over and not self.show_difficulty_screen:
+            elapsed = pygame.time.get_ticks() - self.start_ticks
+            seconds_left = max(
+                0,
+                (self.time_limit_ms - elapsed) // 1000
             )
 
-            # Center everything on screen
-            title_rect = title_surface.get_rect(
-                center=(self.width // 2, self.height // 2 - 70)
-            )
-            message_rect = message_surface.get_rect(
-                center=(self.width // 2, self.height // 2)
-            )
-            instruction_rect = instruction_surface.get_rect(
-                center=(self.width // 2, self.height // 2 + 60)
+            timer_text = self.font.render(
+                f"Time: {seconds_left}s",
+                True,
+                WHITE
             )
 
-            screen.blit(title_surface, title_rect)
-            screen.blit(message_surface, message_rect)
-            screen.blit(instruction_surface, instruction_rect)
+            screen.blit(timer_text, (10, 10))
 
-    def _restart_game(self):
-        self.marble = Marble(50, 50)
-        self.start_ticks = pygame.time.get_ticks()
-        self.elapsed_ms = 0
-        self.game_over = False
-        self.result = None
-        self.finish_time_ms = None
+            # Show current difficulty
+            difficulty_text = self.font.render(
+                f"Difficulty: {self.difficulty or 'Medium'}",
+                True,
+                WHITE
+            )
+
+            screen.blit(
+                difficulty_text,
+                (10, 45)
+            )
+
+        # Difficulty selection screen
+        if self.show_difficulty_screen:
+            self._render_difficulty_screen(screen)
+
+        # Game-over screen
+        elif self.game_over:
+            self._render_game_over_screen(screen)
+
+    def _render_game_over_screen(self, screen):
+        overlay = pygame.Surface(
+            (self.width, self.height),
+            pygame.SRCALPHA
+        )
+        overlay.fill((0, 0, 0, 190))
+        screen.blit(overlay, (0, 0))
+
+        title_font = pygame.font.SysFont(
+            "Arial",
+            48,
+            bold=True
+        )
+
+        message_font = pygame.font.SysFont(
+            "Arial",
+            30
+        )
+
+        instruction_font = pygame.font.SysFont(
+            "Arial",
+            24
+        )
+
+        if self.result == "solved":
+            title_text = "Maze Solved!"
+            message_text = (
+                f"Finished in "
+                f"{self.finish_time_ms / 1000:.1f} seconds"
+            )
+        else:
+            title_text = "Time's Up!"
+            message_text = "The maze was not solved."
+
+        title_surface = title_font.render(
+            title_text,
+            True,
+            WHITE
+        )
+
+        message_surface = message_font.render(
+            message_text,
+            True,
+            WHITE
+        )
+
+        instruction_surface = instruction_font.render(
+            "Press R, Enter, or Space to continue",
+            True,
+            WHITE
+        )
+
+        screen.blit(
+            title_surface,
+            title_surface.get_rect(
+                center=(
+                    self.width // 2,
+                    self.height // 2 - 70
+                )
+            )
+        )
+
+        screen.blit(
+            message_surface,
+            message_surface.get_rect(
+                center=(
+                    self.width // 2,
+                    self.height // 2
+                )
+            )
+        )
+
+        screen.blit(
+            instruction_surface,
+            instruction_surface.get_rect(
+                center=(
+                    self.width // 2,
+                    self.height // 2 + 60
+                )
+            )
+        )
+
+    def _render_difficulty_screen(self, screen):
+        overlay = pygame.Surface(
+            (self.width, self.height),
+            pygame.SRCALPHA
+        )
+        overlay.fill((0, 0, 0, 210))
+        screen.blit(overlay, (0, 0))
+
+        title_font = pygame.font.SysFont(
+            "Arial",
+            44,
+            bold=True
+        )
+
+        option_font = pygame.font.SysFont(
+            "Arial",
+            30
+        )
+
+        instruction_font = pygame.font.SysFont(
+            "Arial",
+            22
+        )
+
+        title_surface = title_font.render(
+            "Choose Difficulty",
+            True,
+            WHITE
+        )
+
+        screen.blit(
+            title_surface,
+            title_surface.get_rect(
+                center=(
+                    self.width // 2,
+                    self.height // 2 - 120
+                )
+            )
+        )
+
+        options = [
+            ("1", "Easy", "60 seconds"),
+            ("2", "Medium", "45 seconds"),
+            ("3", "Hard", "30 seconds"),
+        ]
+
+        start_y = self.height // 2 - 50
+
+        for i, (key, name, time_limit) in enumerate(options):
+            text = f"{key} - {name}   ({time_limit})"
+
+            surface = option_font.render(
+                text,
+                True,
+                WHITE
+            )
+
+            screen.blit(
+                surface,
+                surface.get_rect(
+                    center=(
+                        self.width // 2,
+                        start_y + i * 55
+                    )
+                )
+            )
+
+        instruction = instruction_font.render(
+            "Press 1, 2, or 3 to start    |    Esc to exit",
+            True,
+            WHITE
+        )
+
+        screen.blit(
+            instruction,
+            instruction.get_rect(
+                center=(
+                    self.width // 2,
+                    self.height // 2 + 130
+                )
+            )
+        )
